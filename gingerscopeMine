@@ -1,0 +1,501 @@
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Player = game.Players.LocalPlayer
+
+local IsFarming = false
+local FarmingThread = nil
+local TimerThread = nil
+local CoinsCollected = 0
+local StartTime = os.time()
+
+local function GetParts()
+    local Char = Player.Character
+    if Char then
+        local Root = Char:FindFirstChild("HumanoidRootPart")
+        local Hum = Char:FindFirstChild("Humanoid")
+
+        if Root and Hum then
+            return Root, Hum
+        end
+    end
+    return nil, nil
+end
+
+local function GetMap()
+    while true do
+        for _, Obj in ipairs(workspace:GetChildren()) do
+            if Obj:GetAttribute("MapID") and Obj:FindFirstChild("CoinContainer") then
+                return Obj
+            end
+        end
+        task.wait()
+    end
+end
+
+local function GetNearest(Root)
+    if not Root then return nil end
+    local Map = GetMap()
+    local Closest, Dist = nil, math.huge
+
+    for _, Coin in ipairs(Map.CoinContainer:GetChildren()) do
+        local Visual = Coin:FindFirstChild("CoinVisual")
+        if Visual and not Visual:GetAttribute("Collected") then
+            local D = (Root.Position - Coin.Position).Magnitude
+            if D < Dist then
+                Closest = Coin
+                Dist = D
+            end
+        end
+    end
+    return Closest
+end
+
+local function MoveTo(Root, Hum, Target)
+    if not Root or not Hum then return end
+    Hum:ChangeState(11)
+    local D = (Root.Position - Target.Position).Magnitude
+    local Tween = TweenService:Create(Root, TweenInfo.new(D / 25, Enum.EasingStyle.Linear), {CFrame = Target.CFrame})
+    Tween:Play()
+    Tween.Completed:Wait()
+end
+
+local function StartFarming()
+    if FarmingThread then return end
+    CoinsCollected = 0
+    StartTime = os.time()
+
+    TimerThread = task.spawn(function()
+        while IsFarming do
+            local Elapsed = os.time() - StartTime
+            task.wait(1)
+        end
+    end)
+
+    FarmingThread = task.spawn(function()
+        while IsFarming do
+            local Success, Err = pcall(function()
+                while IsFarming do
+                    local Root, Hum = GetParts()
+                    if not Root or not Hum or not Player:GetAttribute("Alive") then
+                        task.wait(0.5)
+                        continue
+                    end
+
+                    local Target = GetNearest(Root)
+                    if Target then
+                        MoveTo(Root, Hum, Target)
+                        local Visual = Target:FindFirstChild("CoinVisual")
+                        local CollectedByUs = false
+
+                        if Visual and not Visual:GetAttribute("Collected") then
+                            while Visual and not Visual:GetAttribute("Collected") and Visual.Parent and IsFarming do
+                                if not Player:GetAttribute("Alive") or not GetParts() then break end
+                                local Next = GetNearest(Root)
+                                if Next and Next ~= Target then break end
+                                task.wait()
+                            end
+                            if not Visual or not Visual.Parent or Visual:GetAttribute("Collected") then
+                                CollectedByUs = true
+                            end
+                        end
+
+                        if CollectedByUs then
+                            CoinsCollected = CoinsCollected + 1
+                        end
+                        local Elapsed = os.time() - StartTime
+                        if Elapsed > 0 then
+                            local Cph = math.floor((CoinsCollected / Elapsed) * 3600)
+                        end
+                    else
+                        task.wait(0.5)
+                    end
+                end
+            end)
+            if not IsFarming then break end
+            if Err then
+                warn("Farming error: " .. tostring(Err))
+                task.wait(1)
+            end
+        end
+    end)
+end
+
+local function StopFarming()
+    IsFarming = false
+    if FarmingThread then FarmingThread = nil end
+    if TimerThread then TimerThread = nil end
+end
+
+--==================================================
+-- HALLOWEEN MM2 COIN FARM GUI
+--==================================================
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "HalloweenCoinFarmGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.DisplayOrder = 999999
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local function Make(className, props, parent)
+    local obj = Instance.new(className)
+    for key, value in pairs(props) do
+        obj[key] = value
+    end
+    obj.Parent = parent
+    return obj
+end
+
+----------------------------------------------------------------
+-- 1. LOADING SCREEN
+----------------------------------------------------------------
+local Loader = Make("Frame", {
+    Name = "Loader",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = Color3.fromRGB(10, 8, 15),
+    BorderSizePixel = 0,
+    ZIndex = 9999,
+}, ScreenGui)
+
+local LoaderIcon = Make("TextLabel", {
+    Size = UDim2.fromOffset(60, 60),
+    Position = UDim2.new(0.5, -30, 0.5, -50),
+    BackgroundTransparency = 1,
+    Text = "🎃",
+    TextSize = 50,
+    Font = Enum.Font.GothamBold,
+    ZIndex = 10000,
+}, Loader)
+
+local LoaderText = Make("TextLabel", {
+    Size = UDim2.fromOffset(200, 30),
+    Position = UDim2.new(0.5, -100, 0.5, 15),
+    BackgroundTransparency = 1,
+    Text = "LOADING HALLOWEEN HUB...",
+    TextColor3 = Color3.fromRGB(255, 113, 28),
+    TextSize = 12,
+    Font = Enum.Font.GothamBold,
+    ZIndex = 10000,
+}, Loader)
+
+local BarBg = Make("Frame", {
+    Size = UDim2.fromOffset(200, 4),
+    Position = UDim2.new(0.5, -100, 0.5, 35),
+    BackgroundColor3 = Color3.fromRGB(40, 25, 45),
+    BorderSizePixel = 0,
+    ZIndex = 10000,
+}, Loader)
+Make("UICorner", {CornerRadius = UDim.new(1, 0)}, BarBg)
+
+local BarFill = Make("Frame", {
+    Size = UDim2.fromScale(0, 1),
+    BackgroundColor3 = Color3.fromRGB(255, 113, 28),
+    BorderSizePixel = 0,
+    ZIndex = 10001,
+}, BarBg)
+Make("UICorner", {CornerRadius = UDim.new(1, 0)}, BarFill)
+
+-- Animate Loader
+TweenService:Create(BarFill, TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.fromScale(1, 1)}):Play()
+
+task.delay(1.4, function()
+    TweenService:Create(Loader, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+    TweenService:Create(LoaderIcon, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+    TweenService:Create(LoaderText, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+    TweenService:Create(BarBg, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+    TweenService:Create(BarFill, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+    task.wait(0.5)
+    Loader:Destroy()
+end)
+
+----------------------------------------------------------------
+-- 2. MAIN GUI
+----------------------------------------------------------------
+local Main = Make("Frame", {
+    Name = "Main",
+    Size = UDim2.fromOffset(245, 182),
+    Position = UDim2.new(0.5, -122, 0.2, 0),
+    BackgroundColor3 = Color3.fromRGB(15, 12, 22),
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+}, ScreenGui)
+
+Main.BackgroundTransparency = 1
+task.delay(1.6, function()
+    TweenService:Create(Main, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {BackgroundTransparency = 0}):Play()
+end)
+
+Make("UICorner", {CornerRadius = UDim.new(0, 12)}, Main)
+local MainStroke = Make("UIStroke", {
+    Color = Color3.fromRGB(255, 113, 28),
+    Thickness = 1.6,
+    Transparency = 1,
+}, Main)
+
+task.delay(1.6, function()
+    TweenService:Create(MainStroke, TweenInfo.new(0.6), {Transparency = 0.08}):Play()
+end)
+
+local Gradient = Make("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(31, 17, 42)),
+        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(17, 13, 25)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 10, 16)),
+    }),
+    Rotation = 35,
+}, Main)
+
+local TopBar = Make("Frame", {
+    Name = "TopBar",
+    Size = UDim2.new(1, 0, 0, 39),
+    BackgroundColor3 = Color3.fromRGB(37, 19, 42),
+    BorderSizePixel = 0,
+}, Main)
+Make("UICorner", {CornerRadius = UDim.new(0, 12)}, TopBar)
+
+Make("Frame", {
+    Size = UDim2.new(1, 0, 0, 12),
+    Position = UDim2.new(0, 0, 1, -12),
+    BackgroundColor3 = TopBar.BackgroundColor3,
+    BorderSizePixel = 0,
+}, TopBar)
+
+Make("Frame", {
+    Size = UDim2.new(1, -20, 0, 1),
+    Position = UDim2.new(0, 10, 0, 39),
+    BackgroundColor3 = Color3.fromRGB(255, 113, 28),
+    BackgroundTransparency = 0.25,
+    BorderSizePixel = 0,
+}, Main)
+
+local Pumpkin = Make("TextLabel", {
+    Size = UDim2.fromOffset(28, 28),
+    Position = UDim2.fromOffset(9, 5),
+    BackgroundTransparency = 1,
+    Text = "🎃",
+    TextSize = 20,
+    Font = Enum.Font.GothamBold,
+}, TopBar)
+
+local Title = Make("TextLabel", {
+    Name = "Title",
+    Size = UDim2.new(1, -80, 0, 21),
+    Position = UDim2.fromOffset(39, 5),
+    BackgroundTransparency = 1,
+    Text = "AUTO FARM CANDY",
+    TextColor3 = Color3.fromRGB(255, 157, 65),
+    TextSize = 12,
+    Font = Enum.Font.GothamBlack,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, TopBar)
+
+Make("TextLabel", {
+    Size = UDim2.new(1, -80, 0, 12),
+    Position = UDim2.fromOffset(40, 23),
+    BackgroundTransparency = 1,
+    Text = "MM2 HALLOWEEN EDITION",
+    TextColor3 = Color3.fromRGB(173, 151, 189),
+    TextSize = 8,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, TopBar)
+
+local ExpandButton = Make("TextButton", {
+    Name = "ExpandButton",
+    Size = UDim2.fromOffset(27, 27),
+    Position = UDim2.new(1, -32, 0, 6),
+    BackgroundColor3 = Color3.fromRGB(55, 29, 61),
+    BorderSizePixel = 0,
+    Text = "−",
+    TextColor3 = Color3.fromRGB(255, 177, 92),
+    TextSize = 19,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = true,
+}, TopBar)
+Make("UICorner", {CornerRadius = UDim.new(0, 7)}, ExpandButton)
+
+local StatusDot = Make("Frame", {
+    Size = UDim2.fromOffset(7, 7),
+    Position = UDim2.fromOffset(13, 53),
+    BackgroundColor3 = Color3.fromRGB(130, 130, 145),
+    BorderSizePixel = 0,
+}, Main)
+Make("UICorner", {CornerRadius = UDim.new(1, 0)}, StatusDot)
+
+local Status = Make("TextLabel", {
+    Size = UDim2.new(1, -30, 0, 15),
+    Position = UDim2.fromOffset(26, 49),
+    BackgroundTransparency = 1,
+    Text = "SYSTEM STANDBY",
+    TextColor3 = Color3.fromRGB(183, 173, 194),
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, Main)
+
+local Toggle = Make("TextButton", {
+    Name = "Toggle",
+    Size = UDim2.new(1, -22, 0, 38),
+    Position = UDim2.fromOffset(11, 71),
+    BackgroundColor3 = Color3.fromRGB(43, 28, 49),
+    BorderSizePixel = 0,
+    Text = "",
+    AutoButtonColor = false,
+}, Main)
+Make("UICorner", {CornerRadius = UDim.new(0, 9)}, Toggle)
+local ToggleStroke = Make("UIStroke", {
+    Color = Color3.fromRGB(255, 113, 28),
+    Thickness = 1.2,
+    Transparency = 0.15,
+}, Toggle)
+
+local ToggleIcon = Make("TextLabel", {
+    Size = UDim2.fromOffset(27, 30),
+    Position = UDim2.fromOffset(8, 4),
+    BackgroundTransparency = 1,
+    Text = "☾",
+    TextColor3 = Color3.fromRGB(255, 148, 55),
+    TextSize = 22,
+    Font = Enum.Font.GothamBlack,
+}, Toggle)
+
+local ToggleText = Make("TextLabel", {
+    Size = UDim2.new(1, -53, 1, 0),
+    Position = UDim2.fromOffset(39, 0),
+    BackgroundTransparency = 1,
+    Text = "START FARMING",
+    TextColor3 = Color3.fromRGB(255, 230, 209),
+    TextSize = 11,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+}, Toggle)
+
+local ToggleArrow = Make("TextLabel", {
+    Size = UDim2.fromOffset(20, 30),
+    Position = UDim2.new(1, -25, 0, 4),
+    BackgroundTransparency = 1,
+    Text = "›",
+    TextColor3 = Color3.fromRGB(255, 157, 65),
+    TextSize = 23,
+    Font = Enum.Font.GothamBold,
+}, Toggle)
+
+local Footer = Make("TextLabel", {
+    Size = UDim2.new(1, -20, 0, 17),
+    Position = UDim2.fromOffset(10, 125),
+    BackgroundTransparency = 1,
+    Text = "👻 TRICK OR TREAT  •  MM2 🍬",
+    TextColor3 = Color3.fromRGB(145, 125, 157),
+    TextSize = 9,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Center,
+}, Main)
+
+local BottomAccent = Make("Frame", {
+    Size = UDim2.fromOffset(48, 3),
+    Position = UDim2.new(0.5, -24, 1, -9),
+    BackgroundColor3 = Color3.fromRGB(255, 113, 28),
+    BorderSizePixel = 0,
+}, Main)
+Make("UICorner", {CornerRadius = UDim.new(1, 0)}, BottomAccent)
+
+-- Toggle farm state
+Toggle.Activated:Connect(function()
+    IsFarming = not IsFarming
+
+    if IsFarming then
+        TweenService:Create(Toggle, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(28, 48, 34)}):Play()
+        TweenService:Create(ToggleStroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(157, 255, 92)}):Play()
+        
+        ToggleText.Text = "STOP FARMING"
+        ToggleIcon.Text = "✦"
+        ToggleIcon.TextColor3 = Color3.fromRGB(190, 255, 100)
+        ToggleArrow.TextColor3 = Color3.fromRGB(180, 255, 115)
+        Status.Text = "HAUNTED FARM ACTIVE"
+        Status.TextColor3 = Color3.fromRGB(174, 255, 112)
+        StatusDot.BackgroundColor3 = Color3.fromRGB(151, 255, 82)
+        StartFarming()
+    else
+        TweenService:Create(Toggle, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(43, 28, 49)}):Play()
+        TweenService:Create(ToggleStroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(255, 113, 28)}):Play()
+
+        ToggleText.Text = "START FARMING"
+        ToggleIcon.Text = "☾"
+        ToggleIcon.TextColor3 = Color3.fromRGB(255, 148, 55)
+        ToggleArrow.TextColor3 = Color3.fromRGB(255, 157, 65)
+        Status.Text = "SYSTEM STANDBY"
+        Status.TextColor3 = Color3.fromRGB(183, 173, 194)
+        StatusDot.BackgroundColor3 = Color3.fromRGB(130, 130, 145)
+        StopFarming()
+    end
+end)
+
+-- Expand / collapse
+local Expanded = true
+ExpandButton.Activated:Connect(function()
+    Expanded = not Expanded
+    if Expanded then
+        Main:TweenSize(UDim2.fromOffset(245, 182), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.22, true)
+        for _, item in ipairs(Main:GetChildren()) do
+            if item ~= TopBar and item ~= Main:FindFirstChildOfClass("UICorner")
+                and item ~= MainStroke and item ~= Gradient then
+                item.Visible = true
+            end
+        end
+        Title.Visible = true
+        Pumpkin.Visible = true
+        ExpandButton.Position = UDim2.new(1, -32, 0, 6)
+        ExpandButton.Text = "−"
+    else
+        Main:TweenSize(UDim2.fromOffset(43, 39), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.22, true)
+        for _, item in ipairs(Main:GetChildren()) do
+            if item ~= TopBar and item ~= Main:FindFirstChildOfClass("UICorner")
+                and item ~= MainStroke and item ~= Gradient then
+                item.Visible = false
+            end
+        end
+        Title.Visible = false
+        Pumpkin.Visible = false
+        ExpandButton.Position = UDim2.fromOffset(8, 6)
+        ExpandButton.Text = "+"
+    end
+end)
+
+-- Drag with mouse or touch
+local Dragging = false
+local DragStart
+local StartPosition
+local DragInput
+
+TopBar.InputBegan:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+        or Input.UserInputType == Enum.UserInputType.Touch then
+        Dragging = true
+        DragStart = Input.Position
+        StartPosition = Main.Position
+        Input.Changed:Connect(function()
+            if Input.UserInputState == Enum.UserInputState.End then
+                Dragging = false
+            end
+        end)
+    end
+end)
+
+TopBar.InputChanged:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseMovement
+        or Input.UserInputType == Enum.UserInputType.Touch then
+        DragInput = Input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(Input)
+    if Dragging and (Input == DragInput
+        or Input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local Delta = Input.Position - DragStart
+        Main.Position = UDim2.new(
+            StartPosition.X.Scale, StartPosition.X.Offset + Delta.X,
+            StartPosition.Y.Scale, StartPosition.Y.Offset + Delta.Y
+        )
+    end
+end)
